@@ -1,0 +1,21 @@
+{
+  "name": "crdt-backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "clean": "rm -rf dist",
+    "build": "npm run clean && tsc",
+    "watch": "npm run clean && tsc -w"
+  },
+  "author": "",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/express": "^4.17.11",
+    "typescript": "^4.2.3"
+  },
+  "dependencies": {
+    "express": "^4.17.1"
+  }
+}
