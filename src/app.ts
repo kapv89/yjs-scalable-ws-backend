@@ -2,13 +2,13 @@ import express from 'express'
 import WS from 'ws';
 import http from 'http';
 
-import config from './config';
-import { serverLogger } from './logger';
-import { setupWSConnection } from './service';
+import config from './config.js';
+import { serverLogger } from './logger/index.js';
+import setupWSConnection from './setupWSConnection.js';
 
 export const app = express();
 export const server = http.createServer(app);
-export const wss = new WS.Server({noServer: true, path: '/connect'});
+export const wss = new WS.Server({noServer: true});
 
 wss.on('connection', async (ws, req) => {
   await setupWSConnection(ws, req);
@@ -37,7 +37,7 @@ export const run = async (): Promise<() => Promise<void>> => {
   };
 }
 
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   process.on('unhandledRejection', (err) => {
     serverLogger.error(err);
     throw err;

@@ -1,8 +1,9 @@
-import {createLogger, format, transports, Logger} from 'winston';
+import winston, {Logger} from 'winston';
 import {consoleFormat} from 'winston-console-format';
 import {format as formatDate} from 'date-fns';
+import config from '../config.js';
 
-import config from '../config';
+const {createLogger, format, transports} = winston;
 
 const createLoggerForSpecificModule = (component: string): Logger => {
   const logger = createLogger({

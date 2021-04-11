@@ -1,5 +1,6 @@
 {
   "name": "crdt-backend",
+  "type": "module",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -8,7 +9,8 @@
     "clean": "rm -rf dist",
     "build": "npm run clean && tsc",
     "watch": "npm run clean && tsc -w",
-    "dev": "nodemon -r source-map-support/register -r dotenv/config dist/app.js dotenv_config_path=.env.local"
+    "dev": "nodemon -r source-map-support/register -r dotenv/config dist/app.js dotenv_config_path=.env.local",
+    "tables": "node -r source-map-support/register -r dotenv/config dist/tables.js dotenv_config_path=.env.local"
   },
   "author": "",
   "license": "UNLICENSED",
@@ -35,6 +37,7 @@
     "knex": "^0.95.4",
     "lib0": "^0.2.41",
     "lodash": "^4.17.21",
+    "pg": "^8.5.1",
     "winston": "^3.3.3",
     "winston-console-format": "^1.0.8",
     "ws": "^6.2.1",

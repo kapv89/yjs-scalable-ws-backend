@@ -1,12 +1,13 @@
 import WS from 'ws';
 import http from 'http';
 import * as Y from 'yjs';
-import awarenessProtocol from 'y-protocols/awareness'
-import syncProtocol from 'y-protocols/sync';
-import map from 'lib0/map';
-import mutex from 'lib0/mutex';
-import encoding from 'lib0/encoding';
-import decoding from 'lib0/decoding';
+import * as awarenessProtocol from 'y-protocols/awareness.js'
+import * as syncProtocol from 'y-protocols/sync.js';
+import * as mutex from 'lib0/mutex';
+import * as encoding from 'lib0/encoding';
+import * as decoding from 'lib0/decoding';
+import { serverLogger } from './logger/index.js';
+import knex from './knex.js'
 
 const wsReadyStateConnecting = 0
 const wsReadyStateOpen = 1
@@ -20,13 +21,27 @@ export const pingTimeout = 30000;
 
 export const docs = new Map<string, WSSharedDoc>();
 
-export const setupWSConnection = async (conn: WS, req: http.IncomingMessage): Promise<void> => {
+export default async function setupWSConnection(conn: WS, req: http.IncomingMessage): Promise<void> {
   conn.binaryType = 'arraybuffer';
+  serverLogger.info(req.url);
   const docname: string = req.url?.slice(1).split('?')[0] as string;
   const doc = getYDoc(docname);
-  // TODO: init doc from db
+  doc.conns.set(conn, new Set());
   
-  conn.on('message', (message: WS.Data) => messageListener(conn, req, doc, new Uint8Array(message as ArrayBuffer)));
+  conn.on('message', (message: WS.Data) => {
+    messageListener(conn, req, doc, new Uint8Array(message as ArrayBuffer));
+  });
+
+  const persistedUpdates = await knex<DBUpdate>('items').orderBy('id');
+  const persistedDoc = new Y.Doc()
+
+  persistedDoc.transact(() => {
+    for (const u of persistedUpdates) {
+      Y.applyUpdate(persistedDoc, u.update);
+    }
+  });
+
+  Y.applyUpdate(doc, Y.encodeStateAsUpdate(persistedDoc))
 
   let pongReceived = true;
   const pingInterval = setInterval(() => {
@@ -55,7 +70,7 @@ export const setupWSConnection = async (conn: WS, req: http.IncomingMessage): Pr
     pongReceived = true;
   });
 
-  // put the following in a variables in a block so the interval handlers don't keep in in
+  // put the following in a variables in a block so the interval handlers don't keep them in
   // scope
   {
     // send sync step 1
@@ -74,18 +89,42 @@ export const setupWSConnection = async (conn: WS, req: http.IncomingMessage): Pr
 }
 
 export const messageListener = async (conn: WS, req: http.IncomingMessage, doc: WSSharedDoc, message: Uint8Array): Promise<void> => {
-  // TODO: auth stuff
+  // TODO: authenticate request
   const encoder = encoding.createEncoder();
   const decoder = decoding.createDecoder(message);
   const messageType = decoding.readVarUint(decoder);
   switch (messageType) {
-    case messageSync:
+    case messageSync: {
+      // encoding.writeVarUint(encoder, messageSync);
+      // syncProtocol.readSyncMessage(decoder, encoder, doc, null);
+
       encoding.writeVarUint(encoder, messageSync);
-      syncProtocol.readSyncMessage(decoder, encoder, doc, null);
+      const messageType = decoding.readVarUint(decoder);
+      switch (messageType) {
+        case syncProtocol.messageYjsSyncStep1:
+          syncProtocol.readSyncStep1(decoder, encoder, doc);
+          break
+        case syncProtocol.messageYjsSyncStep2:
+        case syncProtocol.messageYjsUpdate:
+          const update = decoding.readVarUint8Array(decoder);
+          try {
+            Y.applyUpdate(doc, update, null);
+            await persistUpdate(update);
+          } catch (error) {
+            // This catches errors that are thrown by event handlers
+            console.error('Caught error while handling a Yjs update', error);
+          }
+          break
+        default:
+          throw new Error('Unknown message type');
+      }
+      
       if (encoding.length(encoder) > 1) {
         send(doc, conn, encoding.toUint8Array(encoder));
       }
+  
       break;
+    }
     case messageAwareness: {
       awarenessProtocol.applyAwarenessUpdate(doc.awareness, decoding.readVarUint8Array(decoder), conn);
       break;
@@ -94,13 +133,27 @@ export const messageListener = async (conn: WS, req: http.IncomingMessage, doc: 
   }
 }
 
-export const getYDoc = (docname: string, gc=true): WSSharedDoc => map.setIfUndefined(docs, docname, () => {
+export const persistUpdate = async (update: Uint8Array): Promise<void> => {
+  await knex('items').insert({update});
+}
+
+interface DBUpdate {
+  id: string;
+  update: Uint8Array;
+}
+
+export const getYDoc = (docname: string, gc=true): WSSharedDoc => {
+  const existing = docs.get(docname);
+  if (existing) {
+    return existing;
+  }
+
   const doc = new WSSharedDoc(docname);
-  doc.gc = gc;
-  // TODO: persistence stuff
+
   docs.set(docname, doc);
+
   return doc;
-});
+}
 
 export const closeConn = (doc: WSSharedDoc, conn: WS): void => {
   const controlledIds = doc.conns.get(conn);
@@ -109,7 +162,8 @@ export const closeConn = (doc: WSSharedDoc, conn: WS): void => {
     awarenessProtocol.removeAwarenessStates(doc.awareness, Array.from(controlledIds), null);
     
     if (doc.conns.size == 0) {
-      // TODO: persistence stuff
+      // TODO: persistence.writeState
+      doc.destroy();
       docs.delete(doc.name);
     }
   }
