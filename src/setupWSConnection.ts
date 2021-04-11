@@ -8,6 +8,8 @@ import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { serverLogger } from './logger/index.js';
 import knex from './knex.js'
+import {v4 as uuid} from 'uuid';
+import {pub, sub} from './pubsub.js';
 
 const wsReadyStateConnecting = 0
 const wsReadyStateOpen = 1
@@ -15,6 +17,18 @@ const wsReadyStateClosing = 2 // eslint-disable-line
 const wsReadyStateClosed = 3 // eslint-disable-line
 
 const updatesLimit = 50;
+
+const serverId = uuid();
+
+export interface DBUpdate {
+  id: string;
+  update: Uint8Array;
+}
+
+export interface PubSubMsg {
+  serverId: string;
+  updateText: string;
+}
 
 export const messageSync = 0;
 export const messageAwareness = 1;
@@ -108,10 +122,17 @@ export const messageListener = async (conn: WS, req: http.IncomingMessage, doc: 
           break
         case syncProtocol.messageYjsSyncStep2:
         case syncProtocol.messageYjsUpdate:
-          const update = decoding.readVarUint8Array(decoder);
+          const update = decoding.readVarUint8Array(decoder);          
           try {
             Y.applyUpdate(doc, update, null);
-            persistUpdate(update); // do not await
+            
+            const textDecoder = new TextDecoder('utf-8');
+            const updateText = textDecoder.decode(message);
+            const updateMsg: PubSubMsg = {serverId, updateText};
+            Promise.all([
+              pub.publish(doc.name, JSON.stringify(updateMsg)),
+              persistUpdate(update)
+            ]); // do not await
           } catch (error) {
             // This catches errors that are thrown by event handlers
             console.error('Caught error while handling a Yjs update', error);
@@ -164,11 +185,6 @@ export const persistUpdate = async (update: Uint8Array): Promise<void> => {
   await knex('items').insert({update});
 }
 
-interface DBUpdate {
-  id: string;
-  update: Uint8Array;
-}
-
 export const getYDoc = (docname: string, gc=true): WSSharedDoc => {
   const existing = docs.get(docname);
   if (existing) {
@@ -189,7 +205,6 @@ export const closeConn = (doc: WSSharedDoc, conn: WS): void => {
     awarenessProtocol.removeAwarenessStates(doc.awareness, Array.from(controlledIds), null);
     
     if (doc.conns.size == 0) {
-      // TODO: persistence.writeState
       doc.destroy();
       docs.delete(doc.name);
     }
@@ -255,5 +270,28 @@ export class WSSharedDoc extends Y.Doc {
 
     this.awareness.on('update', awarenessChangeHandler);
     this.on('update', updateHandler);
+
+    sub.subscribe(this.name).then(() => {
+      sub.on('message', (channel, message) => {
+        if (channel !== this.name) {
+          return;
+        }
+
+        const updateMsg: PubSubMsg = JSON.parse(message);
+        if (updateMsg.serverId === serverId) {
+          return;
+        }
+
+        const {updateText} = updateMsg;
+        const textEncoder = new TextEncoder();
+        const update = textEncoder.encode(updateText);
+        Y.applyUpdate(this, update, null);
+      })
+    })
+  }
+
+  destroy() {
+    super.destroy();
+    sub.unsubscribe(this.name);
   }
 }
