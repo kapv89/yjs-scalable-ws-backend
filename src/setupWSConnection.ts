@@ -14,6 +14,8 @@ const wsReadyStateOpen = 1
 const wsReadyStateClosing = 2 // eslint-disable-line
 const wsReadyStateClosed = 3 // eslint-disable-line
 
+const updatesLimit = 50;
+
 export const messageSync = 0;
 export const messageAwareness = 1;
 
@@ -32,7 +34,7 @@ export default async function setupWSConnection(conn: WS, req: http.IncomingMess
     messageListener(conn, req, doc, new Uint8Array(message as ArrayBuffer));
   });
 
-  const persistedUpdates = await knex<DBUpdate>('items').orderBy('id');
+  const persistedUpdates = await getUpdates();
   const persistedDoc = new Y.Doc()
 
   persistedDoc.transact(() => {
@@ -109,7 +111,7 @@ export const messageListener = async (conn: WS, req: http.IncomingMessage, doc: 
           const update = decoding.readVarUint8Array(decoder);
           try {
             Y.applyUpdate(doc, update, null);
-            await persistUpdate(update);
+            persistUpdate(update); // do not await
           } catch (error) {
             // This catches errors that are thrown by event handlers
             console.error('Caught error while handling a Yjs update', error);
@@ -131,6 +133,31 @@ export const messageListener = async (conn: WS, req: http.IncomingMessage, doc: 
     }
     default: throw new Error('unreachable');
   }
+}
+
+export const getUpdates = async (): Promise<DBUpdate[]> => {
+  return knex.transaction(async (trx) => {
+    const updates = await knex<DBUpdate>('items').transacting(trx).forUpdate().orderBy('id');
+
+    if (updates.length >= updatesLimit) {
+      const doc = new Y.Doc();
+      
+      doc.transact(() => {
+        for (const u of updates) {
+          Y.applyUpdate(doc, u.update);
+        }
+      });
+
+      const [mergedUpdates] = await Promise.all([
+        knex<DBUpdate>('items').transacting(trx).insert({update: Y.encodeStateAsUpdate(doc)}).returning('*'),
+        knex('items').transacting(trx).whereIn('id', updates.map(({id}) => id)).delete()
+      ]);
+
+      return mergedUpdates;
+    } else {
+      return updates;
+    }
+  });
 }
 
 export const persistUpdate = async (update: Uint8Array): Promise<void> => {
