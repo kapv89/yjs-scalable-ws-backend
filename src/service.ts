@@ -1,7 +1,7 @@
 import WS from 'ws';
 import http from 'http';
 import * as Y from 'yjs';
-import awarenessProtocol from 'y-protocols/awareness';
+import awarenessProtocol from 'y-protocols/awareness'
 import syncProtocol from 'y-protocols/sync';
 import map from 'lib0/map';
 import mutex from 'lib0/mutex';

@@ -7,7 +7,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "clean": "rm -rf dist",
     "build": "npm run clean && tsc",
-    "watch": "npm run clean && tsc -w"
+    "watch": "npm run clean && tsc -w",
+    "dev": "nodemon -r source-map-support/register -r dotenv/config dist/app.js dotenv_config_path=.env.local"
   },
   "author": "",
   "license": "UNLICENSED",
@@ -21,8 +22,11 @@
     "@types/ws": "^7.4.0",
     "@typescript-eslint/eslint-plugin": "^4.19.0",
     "@typescript-eslint/parser": "^4.19.0",
+    "dotenv": "^8.2.0",
     "eslint": "^7.23.0",
     "faker": "^5.5.0",
+    "nodemon": "^2.0.7",
+    "source-map-support": "^0.5.19",
     "typescript": "^4.2.3"
   },
   "dependencies": {
