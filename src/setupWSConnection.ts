@@ -118,10 +118,10 @@ export const messageListener = async (conn: WS, req: http.IncomingMessage, doc: 
           try {
             Y.applyUpdate(doc, update, null);
             
-            Promise.all([
-              pub.publishBuffer(doc.name, Buffer.from(update)),
-              persistUpdate(update)
-            ]); // do not await
+            persistUpdate(update).then(() => {
+              // wait for update to be persisted in db before publishing
+              pub.publishBuffer(doc.name, Buffer.from(update));
+            }); // do not await
           } catch (error) {
             // This catches errors that are thrown by event handlers
             console.error('Caught error while handling a Yjs update', error);
