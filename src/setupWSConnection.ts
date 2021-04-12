@@ -8,7 +8,6 @@ import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { serverLogger } from './logger/index.js';
 import knex from './knex.js'
-import {v4 as uuid} from 'uuid';
 import {pub, sub} from './pubsub.js';
 
 const wsReadyStateConnecting = 0
@@ -18,16 +17,9 @@ const wsReadyStateClosed = 3 // eslint-disable-line
 
 const updatesLimit = 50;
 
-const serverId = uuid();
-
 export interface DBUpdate {
   id: string;
   update: Uint8Array;
-}
-
-export interface PubSubMsg {
-  serverId: string;
-  updateText: string;
 }
 
 export const messageSync = 0;
@@ -126,11 +118,8 @@ export const messageListener = async (conn: WS, req: http.IncomingMessage, doc: 
           try {
             Y.applyUpdate(doc, update, null);
             
-            const textDecoder = new TextDecoder('utf-8');
-            const updateText = textDecoder.decode(message);
-            const updateMsg: PubSubMsg = {serverId, updateText};
             Promise.all([
-              pub.publish(doc.name, JSON.stringify(updateMsg)),
+              pub.publishBuffer(doc.name, Buffer.from(update)),
               persistUpdate(update)
             ]); // do not await
           } catch (error) {
@@ -272,19 +261,11 @@ export class WSSharedDoc extends Y.Doc {
     this.on('update', updateHandler);
 
     sub.subscribe(this.name).then(() => {
-      sub.on('message', (channel, message) => {
+      sub.on('messageBuffer', (channel, update) => {
         if (channel !== this.name) {
           return;
         }
 
-        const updateMsg: PubSubMsg = JSON.parse(message);
-        if (updateMsg.serverId === serverId) {
-          return;
-        }
-
-        const {updateText} = updateMsg;
-        const textEncoder = new TextEncoder();
-        const update = textEncoder.encode(updateText);
         Y.applyUpdate(this, update, null);
       })
     })
