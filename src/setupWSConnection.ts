@@ -33,23 +33,25 @@ export default async function setupWSConnection(conn: WS, req: http.IncomingMess
   conn.binaryType = 'arraybuffer';
   serverLogger.info(req.url);
   const docname: string = req.url?.slice(1).split('?')[0] as string;
-  const doc = getYDoc(docname);
+  const [doc, isNew] = getYDoc(docname);
   doc.conns.set(conn, new Set());
   
   conn.on('message', (message: WS.Data) => {
     messageListener(conn, req, doc, new Uint8Array(message as ArrayBuffer));
   });
 
-  const persistedUpdates = await getUpdates();
-  const persistedDoc = new Y.Doc()
+  if (isNew) {
+    const persistedUpdates = await getUpdates();
+    const persistedDoc = new Y.Doc()
 
-  persistedDoc.transact(() => {
-    for (const u of persistedUpdates) {
-      Y.applyUpdate(persistedDoc, u.update);
-    }
-  });
+    persistedDoc.transact(() => {
+      for (const u of persistedUpdates) {
+        Y.applyUpdate(persistedDoc, u.update);
+      }
+    });
 
-  Y.applyUpdate(doc, Y.encodeStateAsUpdate(persistedDoc))
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(persistedDoc))
+  }
 
   let pongReceived = true;
   const pingInterval = setInterval(() => {
@@ -174,17 +176,18 @@ export const persistUpdate = async (update: Uint8Array): Promise<void> => {
   await knex('items').insert({update});
 }
 
-export const getYDoc = (docname: string, gc=true): WSSharedDoc => {
+export const getYDoc = (docname: string, gc=true): [WSSharedDoc, boolean] => {
   const existing = docs.get(docname);
   if (existing) {
-    return existing;
+    return [existing, false];
   }
 
   const doc = new WSSharedDoc(docname);
+  doc.gc = gc;
 
   docs.set(docname, doc);
 
-  return doc;
+  return [doc, true];
 }
 
 export const closeConn = (doc: WSSharedDoc, conn: WS): void => {
