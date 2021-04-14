@@ -106,9 +106,7 @@ export const messageListener = async (conn: WS, req: http.IncomingMessage, doc: 
   const messageType = decoding.readVarUint(decoder);
   switch (messageType) {
     case messageSync: {
-      // encoding.writeVarUint(encoder, messageSync);
-      // syncProtocol.readSyncMessage(decoder, encoder, doc, null);
-
+      // -----------------------------
       encoding.writeVarUint(encoder, messageSync);
       const messageType = decoding.readVarUint(decoder);
       switch (messageType) {
@@ -132,6 +130,15 @@ export const messageListener = async (conn: WS, req: http.IncomingMessage, doc: 
           break
         default:
           throw new Error('Unknown message type');
+        // -----------------------------
+
+        // with https://github.com/yjs/y-protocols/pull/11, the code b/w --- lines would be
+        // ---------------------------
+        // encoding.writeVarUint(encoder, messageSync);
+        // syncProtocol.readSyncMessage(decoder, encoder, doc, null, (update) => {
+        //   persistUpdate(doc, update).then(() => pub.publishBuffer(doc.name, Buffer.from(update)));
+        // });
+        // ---------------------------
       }
       
       if (encoding.length(encoder) > 1) {
