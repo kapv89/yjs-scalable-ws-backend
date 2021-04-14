@@ -19,6 +19,7 @@ const updatesLimit = 50;
 
 export interface DBUpdate {
   id: string;
+  docname: string;
   update: Uint8Array;
 }
 
@@ -41,7 +42,7 @@ export default async function setupWSConnection(conn: WS, req: http.IncomingMess
   });
 
   if (isNew) {
-    const persistedUpdates = await getUpdates();
+    const persistedUpdates = await getUpdates(doc);
     const persistedDoc = new Y.Doc()
 
     persistedDoc.transact(() => {
@@ -120,7 +121,7 @@ export const messageListener = async (conn: WS, req: http.IncomingMessage, doc: 
           try {
             Y.applyUpdate(doc, update, null);
             
-            persistUpdate(update).then(() => {
+            persistUpdate(doc, update).then(() => {
               // wait for update to be persisted in db before publishing
               pub.publishBuffer(doc.name, Buffer.from(update));
             }); // do not await
@@ -147,22 +148,22 @@ export const messageListener = async (conn: WS, req: http.IncomingMessage, doc: 
   }
 }
 
-export const getUpdates = async (): Promise<DBUpdate[]> => {
+export const getUpdates = async (doc: WSSharedDoc): Promise<DBUpdate[]> => {
   return knex.transaction(async (trx) => {
-    const updates = await knex<DBUpdate>('items').transacting(trx).forUpdate().orderBy('id');
+    const updates = await knex<DBUpdate>('items').transacting(trx).where('docname', doc.name).forUpdate().orderBy('id');
 
     if (updates.length >= updatesLimit) {
-      const doc = new Y.Doc();
+      const dbYDoc = new Y.Doc();
       
-      doc.transact(() => {
+      dbYDoc.transact(() => {
         for (const u of updates) {
-          Y.applyUpdate(doc, u.update);
+          Y.applyUpdate(dbYDoc, u.update);
         }
       });
 
       const [mergedUpdates] = await Promise.all([
-        knex<DBUpdate>('items').transacting(trx).insert({update: Y.encodeStateAsUpdate(doc)}).returning('*'),
-        knex('items').transacting(trx).whereIn('id', updates.map(({id}) => id)).delete()
+        knex<DBUpdate>('items').transacting(trx).insert({docname: doc.name, update: Y.encodeStateAsUpdate(dbYDoc)}).returning('*'),
+        knex('items').transacting(trx).where('docname', doc.name).whereIn('id', updates.map(({id}) => id)).delete()
       ]);
 
       return mergedUpdates;
@@ -172,8 +173,8 @@ export const getUpdates = async (): Promise<DBUpdate[]> => {
   });
 }
 
-export const persistUpdate = async (update: Uint8Array): Promise<void> => {
-  await knex('items').insert({update});
+export const persistUpdate = async (doc: WSSharedDoc, update: Uint8Array): Promise<void> => {
+  await knex('items').insert({docname: doc.name, update});
 }
 
 export const getYDoc = (docname: string, gc=true): [WSSharedDoc, boolean] => {
