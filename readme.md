@@ -3,10 +3,11 @@ Example of horizontally scalable websocket backend for [y-js](https://github.com
 
 # Usage
 1. `npm ci`
-2. `cp .env.example .env.local`
-3. Fill in .env.local
-4. `npm run dev` -> starts the websocket-server
-5. On the client-side, initialize a yjs doc and use the y-websocket provider to connect to the websocket-server
+2. `npm run build`
+3. `cp .env.example .env.local`
+4. Fill in .env.local
+5. `npm run dev` -> starts the websocket-server
+6. On the client-side, initialize a yjs doc and use the y-websocket provider to connect to the websocket-server
 
 # How it works
 This repo is a slightly reworked websocket server found in the y-websocket repo([link](https://github.com/yjs/y-websocket/blob/master/bin/server.js)).
