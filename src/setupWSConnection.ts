@@ -43,15 +43,15 @@ export default async function setupWSConnection(conn: WS, req: http.IncomingMess
 
   if (isNew) {
     const persistedUpdates = await getUpdates(doc);
-    const persistedDoc = new Y.Doc()
+    const dbYDoc = new Y.Doc()
 
-    persistedDoc.transact(() => {
+    dbYDoc.transact(() => {
       for (const u of persistedUpdates) {
-        Y.applyUpdate(persistedDoc, u.update);
+        Y.applyUpdate(dbYDoc, u.update);
       }
     });
 
-    Y.applyUpdate(doc, Y.encodeStateAsUpdate(persistedDoc))
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(dbYDoc))
   }
 
   let pongReceived = true;
@@ -106,40 +106,8 @@ export const messageListener = async (conn: WS, req: http.IncomingMessage, doc: 
   const messageType = decoding.readVarUint(decoder);
   switch (messageType) {
     case messageSync: {
-      // -----------------------------
       encoding.writeVarUint(encoder, messageSync);
-      const messageType = decoding.readVarUint(decoder);
-      switch (messageType) {
-        case syncProtocol.messageYjsSyncStep1:
-          syncProtocol.readSyncStep1(decoder, encoder, doc);
-          break
-        case syncProtocol.messageYjsSyncStep2:
-        case syncProtocol.messageYjsUpdate:
-          const update = decoding.readVarUint8Array(decoder);          
-          try {
-            Y.applyUpdate(doc, update, null);
-            
-            persistUpdate(doc, update).then(() => {
-              // wait for update to be persisted in db before publishing
-              pub.publishBuffer(doc.name, Buffer.from(update));
-            }); // do not await
-          } catch (error) {
-            // This catches errors that are thrown by event handlers
-            console.error('Caught error while handling a Yjs update', error);
-          }
-          break
-        default:
-          throw new Error('Unknown message type');
-        // -----------------------------
-
-        // with https://github.com/yjs/y-protocols/pull/11, the code b/w --- lines would be
-        // ---------------------------
-        // encoding.writeVarUint(encoder, messageSync);
-        // syncProtocol.readSyncMessage(decoder, encoder, doc, null, (update) => {
-        //   persistUpdate(doc, update).then(() => pub.publishBuffer(doc.name, Buffer.from(update)));
-        // });
-        // ---------------------------
-      }
+      syncProtocol.readSyncMessage(decoder, encoder, doc, conn);
       
       if (encoding.length(encoder) > 1) {
         send(doc, conn, encoding.toUint8Array(encoder));
@@ -229,7 +197,12 @@ export const send = (doc: WSSharedDoc, conn: WS, m: Uint8Array): void => {
   }
 }
 
-export const updateHandler = (update: Uint8Array, origin: any, doc: WSSharedDoc): void => {
+export const updateHandler = async (update: Uint8Array, origin: any, doc: WSSharedDoc): Promise<void> => {
+  if (origin instanceof WS && doc.conns.has(origin)) {
+    await persistUpdate(doc, update);
+    pub.publishBuffer(doc.name, Buffer.from(update)); // do not await
+  }
+
   const encoder = encoding.createEncoder();
   encoding.writeVarUint(encoder, messageSync);
   syncProtocol.writeUpdate(encoder, update);
@@ -277,7 +250,7 @@ export class WSSharedDoc extends Y.Doc {
           return;
         }
 
-        Y.applyUpdate(this, update, null);
+        Y.applyUpdate(this, update, sub);
       })
     })
   }
