@@ -5,7 +5,8 @@ Example of horizontally scalable websocket backend for [y-js](https://github.com
 1. `npm ci`
 2. `npm run build`
 3. `cp .env.example .env.local`
-4. Fill in .env.local
+4. Fill in `.env.local`
+5. `npm run tables` -> creates the tables for doc persistence in db
 5. `npm run dev` -> starts the websocket-server
 6. On the client-side, initialize a yjs doc and use the y-websocket provider to connect to the websocket-server
 
