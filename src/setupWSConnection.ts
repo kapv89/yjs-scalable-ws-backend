@@ -246,11 +246,14 @@ export class WSSharedDoc extends Y.Doc {
 
     sub.subscribe(this.name).then(() => {
       sub.on('messageBuffer', (channel, update) => {
-        if (channel !== this.name) {
+        const rchannel = channel.toString();
+        if (rchannel !== this.name) {
           return;
         }
 
-        Y.applyUpdate(this, update, sub);
+        var rupdate = new Uint8Array(update.length);
+        for (var i = 0; i < update.length; i++) rupdate[i] = update[i];
+        Y.applyUpdate(this, rupdate, sub);
       })
     })
   }
