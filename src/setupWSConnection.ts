@@ -251,8 +251,11 @@ export class WSSharedDoc extends Y.Doc {
           return;
         }
 
-        var rupdate = new Uint8Array(update.length);
-        for (var i = 0; i < update.length; i++) rupdate[i] = update[i];
+        const  rupdate = new Uint8Array(update.length);
+        for (let i = 0; i < update.length; i++) {
+          rupdate[i] = update[i];
+        }
+
         Y.applyUpdate(this, rupdate, sub);
       })
     })
