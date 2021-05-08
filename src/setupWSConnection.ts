@@ -246,17 +246,13 @@ export class WSSharedDoc extends Y.Doc {
 
     sub.subscribe(this.name).then(() => {
       sub.on('messageBuffer', (channel, update) => {
-        const rchannel = channel.toString();
-        if (rchannel !== this.name) {
+        if (channel.toString() !== this.name) {
           return;
         }
 
-        const  rupdate = new Uint8Array(update.length);
-        for (let i = 0; i < update.length; i++) {
-          rupdate[i] = update[i];
-        }
-
-        Y.applyUpdate(this, rupdate, sub);
+        // update is a Buffer, Buffer is a subclass of Uint8Array, update can be applied
+        // as an update directly
+        Y.applyUpdate(this, update, sub);
       })
     })
   }
