@@ -145,7 +145,7 @@ export const getUpdates = async (doc: WSSharedDoc): Promise<DBUpdate[]> => {
     } else {
       return updates;
     }
-  }, {isolationLevel: 'serializable'});
+  });
 }
 
 export const persistUpdate = async (doc: WSSharedDoc, update: Uint8Array): Promise<void> => {
