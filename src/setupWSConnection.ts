@@ -30,9 +30,16 @@ export const pingTimeout = 30000;
 
 export const docs = new Map<string, WSSharedDoc>();
 
+export function cleanup() {
+  docs.forEach((doc) => {
+    doc.conns.forEach((_, conn) => {
+      closeConn(doc, conn);
+    })
+  })
+}
+
 export default async function setupWSConnection(conn: WS, req: http.IncomingMessage): Promise<void> {
   conn.binaryType = 'arraybuffer';
-  serverLogger.info(req.url);
   const docname: string = req.url?.slice(1).split('?')[0] as string;
   const [doc, isNew] = getYDoc(docname);
   doc.conns.set(conn, new Set());

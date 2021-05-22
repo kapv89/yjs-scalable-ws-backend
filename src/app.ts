@@ -4,7 +4,7 @@ import http from 'http';
 
 import config from './config.js';
 import { serverLogger } from './logger/index.js';
-import setupWSConnection from './setupWSConnection.js';
+import setupWSConnection, { cleanup } from './setupWSConnection.js';
 
 export const app = express();
 export const server = http.createServer(app);
@@ -29,7 +29,15 @@ export const run = async (): Promise<() => Promise<void>> => {
   });
 
   return async () => {
-    return new Promise<void>(resolve => {
+    cleanup();
+
+    await new Promise<void>(resolve => {
+      wss.close(() => {
+        resolve()
+      })
+    });
+
+    await new Promise<void>(resolve => {
       server.close(() => {
         resolve()
       })

@@ -1,6 +1,6 @@
 import knex from './knex.js';
 
-const run = async () => {
+export const create = async () => {
   if (!(await knex.schema.hasTable('items'))) {
     await knex.schema.createTable('items', (t) => {
       t.bigIncrements('id');
@@ -10,6 +10,12 @@ const run = async () => {
   }
 }
 
+export const drop = async () => {
+  if (await knex.schema.hasTable('items')) {
+    await knex.schema.dropTable('items');
+  }
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
-  run().then(() => console.log('table created')).then(() => knex.destroy());
+  create().then(() => console.log('table created')).then(() => knex.destroy());
 }
