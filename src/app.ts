@@ -1,5 +1,5 @@
 import express from 'express'
-import WS from 'ws';
+import { WebSocketServer } from 'ws';
 import http from 'http';
 
 import config from './config.js';
@@ -8,7 +8,7 @@ import setupWSConnection, { cleanup } from './setupWSConnection.js';
 
 export const app = express();
 export const server = http.createServer(app);
-export const wss = new WS.Server({noServer: true});
+export const wss = new WebSocketServer({noServer: true});
 
 wss.on('connection', async (ws, req) => {
   await setupWSConnection(ws, req);

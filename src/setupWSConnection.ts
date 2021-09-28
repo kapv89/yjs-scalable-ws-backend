@@ -1,4 +1,4 @@
-import WS from 'ws';
+import { WebSocket, Data as WSData } from 'ws';
 import http from 'http';
 import * as Y from 'yjs';
 import * as awarenessProtocol from 'y-protocols/awareness.js'
@@ -38,13 +38,13 @@ export function cleanup() {
   })
 }
 
-export default async function setupWSConnection(conn: WS, req: http.IncomingMessage): Promise<void> {
+export default async function setupWSConnection(conn: WebSocket, req: http.IncomingMessage): Promise<void> {
   conn.binaryType = 'arraybuffer';
   const docname: string = req.url?.slice(1).split('?')[0] as string;
   const [doc, isNew] = getYDoc(docname);
   doc.conns.set(conn, new Set());
   
-  conn.on('message', (message: WS.Data) => {
+  conn.on('message', (message: WSData) => {
     messageListener(conn, req, doc, new Uint8Array(message as ArrayBuffer));
   });
 
@@ -106,7 +106,7 @@ export default async function setupWSConnection(conn: WS, req: http.IncomingMess
   }
 }
 
-export const messageListener = async (conn: WS, req: http.IncomingMessage, doc: WSSharedDoc, message: Uint8Array): Promise<void> => {
+export const messageListener = async (conn: WebSocket, req: http.IncomingMessage, doc: WSSharedDoc, message: Uint8Array): Promise<void> => {
   // TODO: authenticate request
   const encoder = encoding.createEncoder();
   const decoder = decoding.createDecoder(message);
@@ -173,7 +173,7 @@ export const getYDoc = (docname: string, gc=true): [WSSharedDoc, boolean] => {
   return [doc, true];
 }
 
-export const closeConn = (doc: WSSharedDoc, conn: WS): void => {
+export const closeConn = (doc: WSSharedDoc, conn: WebSocket): void => {
   const controlledIds = doc.conns.get(conn);
   if (controlledIds) {
     doc.conns.delete(conn);
@@ -188,7 +188,7 @@ export const closeConn = (doc: WSSharedDoc, conn: WS): void => {
   conn.close();
 }
 
-export const send = (doc: WSSharedDoc, conn: WS, m: Uint8Array): void => {
+export const send = (doc: WSSharedDoc, conn: WebSocket, m: Uint8Array): void => {
   if (conn.readyState !== wsReadyStateConnecting && conn.readyState !== wsReadyStateOpen) {
     closeConn(doc, conn);
   }
@@ -207,7 +207,7 @@ export const send = (doc: WSSharedDoc, conn: WS, m: Uint8Array): void => {
 export const updateHandler = async (update: Uint8Array, origin: any, doc: WSSharedDoc): Promise<void> => {
   let shouldPersist = false;
 
-  if (origin instanceof WS && doc.conns.has(origin)) {
+  if (origin instanceof WebSocket && doc.conns.has(origin)) {
     pub.publishBuffer(doc.name, Buffer.from(update)); // do not await
     shouldPersist = true;
   }
@@ -226,7 +226,7 @@ export const updateHandler = async (update: Uint8Array, origin: any, doc: WSShar
 export class WSSharedDoc extends Y.Doc {
   name: string;
   mux: mutex.mutex;
-  conns: Map<WS, Set<number>>;
+  conns: Map<WebSocket, Set<number>>;
   awareness: awarenessProtocol.Awareness;
 
   constructor(name: string) {
@@ -237,7 +237,7 @@ export class WSSharedDoc extends Y.Doc {
     this.conns = new Map();
     this.awareness = new awarenessProtocol.Awareness(this);
 
-    const awarenessChangeHandler = ({added, updated, removed}: {added: number[], updated: number[], removed: number[]}, conn: WS) => {
+    const awarenessChangeHandler = ({added, updated, removed}: {added: number[], updated: number[], removed: number[]}, conn: WebSocket) => {
       const changedClients = added.concat(updated, removed);
       if (conn) {
         const connControlledIds = this.conns.get(conn);
