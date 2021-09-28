@@ -205,9 +205,11 @@ export const send = (doc: WSSharedDoc, conn: WS, m: Uint8Array): void => {
 }
 
 export const updateHandler = async (update: Uint8Array, origin: any, doc: WSSharedDoc): Promise<void> => {
+  let shouldPersist = false;
+
   if (origin instanceof WS && doc.conns.has(origin)) {
-    await persistUpdate(doc, update);
     pub.publishBuffer(doc.name, Buffer.from(update)); // do not await
+    shouldPersist = true;
   }
 
   const encoder = encoding.createEncoder();
@@ -215,6 +217,10 @@ export const updateHandler = async (update: Uint8Array, origin: any, doc: WSShar
   syncProtocol.writeUpdate(encoder, update);
   const message = encoding.toUint8Array(encoder);
   doc.conns.forEach((_, conn) => send(doc, conn, message));
+
+  if (shouldPersist) {
+    await persistUpdate(doc, update);
+  }
 }
 
 export class WSSharedDoc extends Y.Doc {
