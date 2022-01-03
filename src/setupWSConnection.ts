@@ -225,6 +225,7 @@ export const updateHandler = async (update: Uint8Array, origin: any, doc: WSShar
 
 export class WSSharedDoc extends Y.Doc {
   name: string;
+  awarenessChannel: string;
   mux: mutex.mutex;
   conns: Map<WS, Set<number>>;
   awareness: awarenessProtocol.Awareness;
@@ -233,6 +234,7 @@ export class WSSharedDoc extends Y.Doc {
     super();
 
     this.name = name;
+    this.awarenessChannel = `${name}-awareness`;
     this.mux = mutex.createMutex();
     this.conns = new Map();
     this.awareness = new awarenessProtocol.Awareness(this);
@@ -247,8 +249,14 @@ export class WSSharedDoc extends Y.Doc {
 
       const encoder = encoding.createEncoder();
       encoding.writeVarUint(encoder, messageAwareness);
-      encoding.writeVarUint8Array(encoder, awarenessProtocol.encodeAwarenessUpdate(this.awareness, changedClients));
+      const update = awarenessProtocol.encodeAwarenessUpdate(
+        this.awareness,
+        changedClients || Array.from(this.awareness.getStates().keys())
+      );
+      encoding.writeVarUint8Array(encoder, update);
       const buff = encoding.toUint8Array(encoder);
+      // Publish awareness changes on a separate channel
+      pub.publishBuffer(this.awarenessChannel, Buffer.from(update));
       this.conns.forEach((_, c) => {
         send(this, c, buff);
       });
@@ -257,21 +265,22 @@ export class WSSharedDoc extends Y.Doc {
     this.awareness.on('update', awarenessChangeHandler);
     this.on('update', updateHandler);
 
-    sub.subscribe(this.name).then(() => {
+    sub.subscribe(this.name, this.awarenessChannel).then(() => {
       sub.on('messageBuffer', (channel, update) => {
-        if (channel.toString() !== this.name) {
-          return;
+        const channelId = channel.toString();
+        if (channelId === this.name) {
+          // update is a Buffer, Buffer is a subclass of Uint8Array, update can be applied
+          // as an update directly
+          Y.applyUpdate(this, update, sub);
+        } else if (channelId === this.awarenessChannel) {
+          awarenessProtocol.applyAwarenessUpdate(this.awareness, update, sub);
         }
-
-        // update is a Buffer, Buffer is a subclass of Uint8Array, update can be applied
-        // as an update directly
-        Y.applyUpdate(this, update, sub);
       })
     })
   }
 
   destroy() {
     super.destroy();
-    sub.unsubscribe(this.name);
+    sub.unsubscribe(this.name, this.awarenessChannel);
   }
 }
