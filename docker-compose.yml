@@ -1,0 +1,19 @@
+version: '3.8'
+services:
+  yjs_scalable_ws_backend_pg:
+    container_name: yjs_scalable_ws_backend_pg
+    image: postgres:12
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: yjs_playground
+    volumes:
+      - './docker-data/pg:/var/lib/postgresql/data'
+  yjs_scalable_ws_backend_redis:
+    container_name: yjs_scalable_ws_backend_redis
+    image: redis:6.0.6
+    command: redis-server
+    ports:
+      - '6379:6379'

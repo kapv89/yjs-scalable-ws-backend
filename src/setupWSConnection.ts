@@ -6,7 +6,7 @@ import * as syncProtocol from 'y-protocols/sync.js';
 import * as mutex from 'lib0/mutex';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
-import { serverLogger } from './logger/index.js';
+import Redis from 'ioredis';
 import knex from './knex.js'
 import {pub, sub} from './pubsub.js';
 
@@ -225,6 +225,7 @@ export const updateHandler = async (update: Uint8Array, origin: any, doc: WSShar
 
 export class WSSharedDoc extends Y.Doc {
   name: string;
+  awarenessChannel: string;
   mux: mutex.mutex;
   conns: Map<WebSocket, Set<number>>;
   awareness: awarenessProtocol.Awareness;
@@ -233,39 +234,55 @@ export class WSSharedDoc extends Y.Doc {
     super();
 
     this.name = name;
+    this.awarenessChannel = `${name}-awareness`
     this.mux = mutex.createMutex();
     this.conns = new Map();
     this.awareness = new awarenessProtocol.Awareness(this);
 
-    const awarenessChangeHandler = ({added, updated, removed}: {added: number[], updated: number[], removed: number[]}, conn: WebSocket) => {
-      const changedClients = added.concat(updated, removed);
-      if (conn) {
-        const connControlledIds = this.conns.get(conn);
-        added.forEach(clientId => { connControlledIds?.add(clientId); });
-        removed.forEach(clientId => { connControlledIds?.delete(clientId); });
-      }
+    const awarenessChangeHandler = ({added, updated, removed}: {added: number[], updated: number[], removed: number[]}, origin: any) => {
+      if (origin instanceof WebSocket) {
+        const changedClients = added.concat(updated, removed);
+        const connControlledIds = this.conns.get(origin);
+        if (connControlledIds) {
+          added.forEach(clientId => { connControlledIds.add(clientId); });
+          removed.forEach(clientId => { connControlledIds.delete(clientId); });
+        }
 
-      const encoder = encoding.createEncoder();
-      encoding.writeVarUint(encoder, messageAwareness);
-      encoding.writeVarUint8Array(encoder, awarenessProtocol.encodeAwarenessUpdate(this.awareness, changedClients));
-      const buff = encoding.toUint8Array(encoder);
-      this.conns.forEach((_, c) => {
-        send(this, c, buff);
-      });
+        const encoder = encoding.createEncoder();
+        encoding.writeVarUint(encoder, messageAwareness);
+        encoding.writeVarUint8Array(encoder, awarenessProtocol.encodeAwarenessUpdate(this.awareness, changedClients));
+        const buff = encoding.toUint8Array(encoder);
+        
+        pub.publishBuffer(this.awarenessChannel, Buffer.from(buff));
+        this.conns.forEach((_, c) => {
+          send(this, c, buff);
+        });
+      } else if (origin instanceof Redis) {
+        const encoder = encoding.createEncoder();
+        encoding.writeVarUint(encoder, messageAwareness);
+        encoding.writeVarUint8Array(encoder, awarenessProtocol.encodeAwarenessUpdate(this.awareness, Array.from(this.awareness.getStates().keys())));
+        const buff = encoding.toUint8Array(encoder);
+
+        this.conns.forEach((_, c) => {
+          send(this, c, buff);
+        });
+      }
     }
 
     this.awareness.on('update', awarenessChangeHandler);
     this.on('update', updateHandler);
 
-    sub.subscribe(this.name).then(() => {
+    sub.subscribe([this.name, this.awarenessChannel]).then(() => {
       sub.on('messageBuffer', (channel, update) => {
-        if (channel.toString() !== this.name) {
-          return;
-        }
+        const channelId = channel.toString();
 
-        // update is a Buffer, Buffer is a subclass of Uint8Array, update can be applied
-        // as an update directly
-        Y.applyUpdate(this, update, sub);
+        if (channelId === this.name) {
+          // update is a Buffer, Buffer is a subclass of Uint8Array, update can be applied
+          // as an update directly
+          Y.applyUpdate(this, update, sub);
+        } else if (channelId === this.awarenessChannel) {
+          awarenessProtocol.applyAwarenessUpdate(this.awareness, update, sub);
+        }
       })
     })
   }
