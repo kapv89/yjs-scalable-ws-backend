@@ -123,7 +123,9 @@ export const messageListener = async (conn: WebSocket, req: http.IncomingMessage
       break;
     }
     case messageAwareness: {
-      awarenessProtocol.applyAwarenessUpdate(doc.awareness, decoding.readVarUint8Array(decoder), conn);
+      const update = decoding.readVarUint8Array(decoder);
+      pub.publishBuffer(doc.awarenessChannel, Buffer.from(update));
+      awarenessProtocol.applyAwarenessUpdate(doc.awareness, update , conn);
       break;
     }
     default: throw new Error('unreachable');
@@ -240,33 +242,21 @@ export class WSSharedDoc extends Y.Doc {
     this.awareness = new awarenessProtocol.Awareness(this);
 
     const awarenessChangeHandler = ({added, updated, removed}: {added: number[], updated: number[], removed: number[]}, origin: any) => {
-      if (origin instanceof WebSocket) {
-        const changedClients = added.concat(updated, removed);
-        const connControlledIds = this.conns.get(origin);
-        if (connControlledIds) {
-          added.forEach(clientId => { connControlledIds.add(clientId); });
-          removed.forEach(clientId => { connControlledIds.delete(clientId); });
-        }
-
-        const encoder = encoding.createEncoder();
-        encoding.writeVarUint(encoder, messageAwareness);
-        encoding.writeVarUint8Array(encoder, awarenessProtocol.encodeAwarenessUpdate(this.awareness, changedClients));
-        const buff = encoding.toUint8Array(encoder);
-        
-        pub.publishBuffer(this.awarenessChannel, Buffer.from(buff));
-        this.conns.forEach((_, c) => {
-          send(this, c, buff);
-        });
-      } else if (origin instanceof Redis) {
-        const encoder = encoding.createEncoder();
-        encoding.writeVarUint(encoder, messageAwareness);
-        encoding.writeVarUint8Array(encoder, awarenessProtocol.encodeAwarenessUpdate(this.awareness, Array.from(this.awareness.getStates().keys())));
-        const buff = encoding.toUint8Array(encoder);
-
-        this.conns.forEach((_, c) => {
-          send(this, c, buff);
-        });
+      const changedClients = added.concat(updated, removed);
+      const connControlledIds = this.conns.get(origin);
+      if (connControlledIds) {
+        added.forEach(clientId => { connControlledIds.add(clientId); });
+        removed.forEach(clientId => { connControlledIds.delete(clientId); });
       }
+
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, messageAwareness);
+      encoding.writeVarUint8Array(encoder, awarenessProtocol.encodeAwarenessUpdate(this.awareness, changedClients));
+      const buff = encoding.toUint8Array(encoder);
+      
+      this.conns.forEach((_, c) => {
+        send(this, c, buff);
+      });
     }
 
     this.awareness.on('update', awarenessChangeHandler);
@@ -276,11 +266,13 @@ export class WSSharedDoc extends Y.Doc {
       sub.on('messageBuffer', (channel, update) => {
         const channelId = channel.toString();
 
+        // update is a Buffer, Buffer is a subclass of Uint8Array, update can be applied
+        // as an update directly
+
         if (channelId === this.name) {
-          // update is a Buffer, Buffer is a subclass of Uint8Array, update can be applied
-          // as an update directly
           Y.applyUpdate(this, update, sub);
         } else if (channelId === this.awarenessChannel) {
+          console.log('here');
           awarenessProtocol.applyAwarenessUpdate(this.awareness, update, sub);
         }
       })
