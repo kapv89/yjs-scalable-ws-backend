@@ -20,3 +20,6 @@ The websocket-server in this repo isolates the updates that clients send to it, 
 This makes the websocket-server provided in this repo persistent and horizontally-scalable on paper.
 
 The code in this repo hasn't been tested in a production system yet, and from the looks of it, will be a long time before I would be able to run it on a production system, but theoretically, the code in this repo should be sufficient and can be tweaked to suit any project.
+
+# Companion testing repo
+[repo](https://github.com/kapv89/yjs-scalable-ws-backend-test)
