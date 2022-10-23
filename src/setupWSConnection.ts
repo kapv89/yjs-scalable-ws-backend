@@ -9,6 +9,7 @@ import * as decoding from 'lib0/decoding';
 import Redis from 'ioredis';
 import knex from './knex.js'
 import {pub, sub} from './pubsub.js';
+import { getDocUpdatesFromQueue, pushDocUpdatesToQueue } from './redis.js';
 
 const wsReadyStateConnecting = 0
 const wsReadyStateOpen = 1
@@ -58,7 +59,17 @@ export default async function setupWSConnection(conn: WebSocket, req: http.Incom
       }
     });
 
-    Y.applyUpdate(doc, Y.encodeStateAsUpdate(dbYDoc))
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(dbYDoc));
+
+    const redisUpdates = await getDocUpdatesFromQueue(doc);
+    const redisYDoc = new Y.Doc();
+    redisYDoc.transact(() => {
+      for (const u of redisUpdates) {
+        Y.applyUpdate(redisYDoc, u);
+      }
+    });
+
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(redisYDoc));
   }
 
   let pongReceived = true;
@@ -133,28 +144,26 @@ export const messageListener = async (conn: WebSocket, req: http.IncomingMessage
 }
 
 export const getUpdates = async (doc: WSSharedDoc): Promise<DBUpdate[]> => {
-  return knex.transaction(async (trx) => {
-    const updates = await knex<DBUpdate>('items').transacting(trx).where('docname', doc.name).forUpdate().orderBy('id');
+  const updates = await knex<DBUpdate>('items').where('docname', doc.name).orderBy('id');
 
-    if (updates.length >= updatesLimit) {
-      const dbYDoc = new Y.Doc();
-      
-      dbYDoc.transact(() => {
-        for (const u of updates) {
-          Y.applyUpdate(dbYDoc, u.update);
-        }
-      });
+  if (updates.length >= updatesLimit) {
+    const dbYDoc = new Y.Doc();
+    
+    dbYDoc.transact(() => {
+      for (const u of updates) {
+        Y.applyUpdate(dbYDoc, u.update);
+      }
+    });
 
-      const [mergedUpdates] = await Promise.all([
-        knex<DBUpdate>('items').transacting(trx).insert({docname: doc.name, update: Y.encodeStateAsUpdate(dbYDoc)}).returning('*'),
-        knex('items').transacting(trx).where('docname', doc.name).whereIn('id', updates.map(({id}) => id)).delete()
-      ]);
+    const [mergedUpdates] = await Promise.all([
+      knex<DBUpdate>('items').insert({docname: doc.name, update: Y.encodeStateAsUpdate(dbYDoc)}).returning('*'),
+      knex('items').where('docname', doc.name).whereIn('id', updates.map(({id}) => id)).delete()
+    ]);
 
-      return mergedUpdates;
-    } else {
-      return updates;
-    }
-  });
+    return mergedUpdates;
+  } else {
+    return updates;
+  }
 }
 
 export const persistUpdate = async (doc: WSSharedDoc, update: Uint8Array): Promise<void> => {
@@ -207,21 +216,30 @@ export const send = (doc: WSSharedDoc, conn: WebSocket, m: Uint8Array): void => 
 }
 
 export const updateHandler = async (update: Uint8Array, origin: any, doc: WSSharedDoc): Promise<void> => {
-  let shouldPersist = false;
+  let isOriginWSConn = origin instanceof WebSocket && doc.conns.has(origin);
+  let persistFailed = false;
 
-  if (origin instanceof WebSocket && doc.conns.has(origin)) {
-    pub.publishBuffer(doc.name, Buffer.from(update)); // do not await
-    shouldPersist = true;
+  if (isOriginWSConn) {
+    try {
+      Promise.all([
+        pub.publishBuffer(doc.name, Buffer.from(update)),
+        pushDocUpdatesToQueue(doc, update)
+      ]); // do not await
+  
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, messageSync);
+      syncProtocol.writeUpdate(encoder, update);
+      const message = encoding.toUint8Array(encoder);
+      doc.conns.forEach((_, conn) => send(doc, conn, message));
+  
+      await persistUpdate(doc, update);
+    } catch {
+      persistFailed = true
+    }
   }
 
-  const encoder = encoding.createEncoder();
-  encoding.writeVarUint(encoder, messageSync);
-  syncProtocol.writeUpdate(encoder, update);
-  const message = encoding.toUint8Array(encoder);
-  doc.conns.forEach((_, conn) => send(doc, conn, message));
-
-  if (shouldPersist) {
-    await persistUpdate(doc, update);
+  if (persistFailed) {
+    closeConn(doc, origin);
   }
 }
 
@@ -272,7 +290,6 @@ export class WSSharedDoc extends Y.Doc {
         if (channelId === this.name) {
           Y.applyUpdate(this, update, sub);
         } else if (channelId === this.awarenessChannel) {
-          console.log('here');
           awarenessProtocol.applyAwarenessUpdate(this.awareness, update, sub);
         }
       })
