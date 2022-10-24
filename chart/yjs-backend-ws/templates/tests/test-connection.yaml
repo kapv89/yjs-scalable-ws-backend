@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "yjs-backend-ws.fullname" . }}-test-connection"
+  labels:
+    {{- include "yjs-backend-ws.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['{{ include "yjs-backend-ws.fullname" . }}:{{ .Values.service.port }}']
+  restartPolicy: Never

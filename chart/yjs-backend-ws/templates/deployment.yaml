@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "yjs-backend-ws.fullname" . }}
+  labels:
+    {{- include "yjs-backend-ws.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "yjs-backend-ws.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "yjs-backend-ws.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "yjs-backend-ws.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          env:
+          - name: SERVER_HOST
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.secret.secretName }}
+                key: SERVER_HOST
+          - name: SERVER_PORT
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.secret.secretName }}
+                key: SERVER_PORT
+          - name: DB_HOST
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.secret.secretName }}
+                key: DB_HOST
+          - name: DB_USER
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.secret.secretName }}
+                key: DB_USER
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.secret.secretName }}
+                key: DB_PASSWORD
+          - name: DB_NAME
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.secret.secretName }}
+                key: DB_NAME
+          - name: REDIS_HOST
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.secret.secretName }}
+                key: REDIS_HOST
+          - name: REDIS_PORT
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.secret.secretName }}
+                key: REDIS_PORT
+          - name: REDIS_PREFIX
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.secret.secretName }}
+                key: REDIS_PREFIX
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          volumeMounts:
+          - mountPath: /cache
+            name: cache-volume
+      volumes:
+      - name: cache-volume
+        emptyDir: {}

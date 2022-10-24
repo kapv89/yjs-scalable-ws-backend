@@ -10,6 +10,7 @@
     "build": "npm run clean && tsc",
     "watch": "npm run clean && tsc -w",
     "dev": "nodemon -r source-map-support/register -r dotenv/config dist/app.js dotenv_config_path=.env.local",
+    "start": "node -r source-map-support/register dist/app.js",
     "tables": "node -r source-map-support/register -r dotenv/config dist/tables.js dotenv_config_path=.env.local"
   },
   "author": "",
