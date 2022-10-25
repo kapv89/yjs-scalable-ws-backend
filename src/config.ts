@@ -18,7 +18,7 @@ const config = {
     port: Number(process.env.REDIS_PORT as string),
     keyPrefix: process.env.REDIS_PREFIX as string,
     ...((() => {
-      let password = process.env.REDIS_PASSWORD as (string | undefined)
+      const password = process.env.REDIS_PASSWORD as (string | undefined)
       
       if (password && password.length > 0) {
         return {password}
