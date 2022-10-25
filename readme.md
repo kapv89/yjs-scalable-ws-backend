@@ -23,3 +23,44 @@ The code in this repo hasn't been tested in a production system yet, and from th
 
 # Companion testing repo
 [repo](https://github.com/kapv89/yjs-scalable-ws-backend-test)
+
+# Deploy to Kubernetes
+
+For local testing, we first have to spin up minikube and create some namespaces
+
+```
+minikube start
+kubectl create ns backend
+kubectl create ns postgresql
+kubectl create ns redis
+```
+
+Then we have to install PostgreSQL and Redis
+
+```
+helm install psql bitnami/postgresql --version 11.9.11 --namespace postgresql --set global.postgresql.servicePort=5432 --set global.postgresql.postgresqlDatabase=yjs_db \
+    --set global.postgresql.postgresqlUsername=test_user --set global.postgresql.postgresqlPassword=mypass
+
+helm install redis bitnami/redis --version 17.3.7 --namespace redis --set auth.enabled=false
+```
+
+After building the Docker image
+
+```
+eval $(minikube docker-env)
+docker build -f ./Dockerfile -t kapv89/yjs-backend-ws:test .
+```
+
+we can deploy the service with our helm charts
+
+```
+helm install yjs-backend-ws ./chart/yjs-backend-ws --namespace backend \
+ --set image.tag=test \
+ --set secret.db_host="psql-postgresql.postgresql.svc.cluster.local:5432" \
+ --set secret.db_user="test_user" \
+ --set secret.db_password="mypass" \
+ --set secret.db_name="yjs_db" \
+ --set secret.redis_host="redis-master.redis.svc.cluster.local" \
+ --set secret.redis_port="6379" \
+ --set secret.redis_prefix="backend.crdtwss."
+ ```
