@@ -6,9 +6,9 @@ import * as syncProtocol from 'y-protocols/sync.js';
 import * as mutex from 'lib0/mutex';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
-import knex from './knex.js'
 import {pub, sub} from './pubsub.js';
 import { getDocUpdatesFromQueue, pushDocUpdatesToQueue } from './redis.js';
+import { getDiagramUpdates, postDiagramUpdate } from './apiClient.js';
 import { serverLogger } from './logger/index.js';
 
 const wsReadyStateConnecting = 0
@@ -40,7 +40,6 @@ export function cleanup() {
 }
 
 export default async function setupWSConnection(conn: WebSocket, req: http.IncomingMessage): Promise<void> {
-  serverLogger.info({msg: 'setupWSConnection'});
   conn.binaryType = 'arraybuffer';
   const docId: string = req.url?.slice(1).split('?')[0] as string;
   const [doc, isNew] = getYDoc(docId);
@@ -51,12 +50,12 @@ export default async function setupWSConnection(conn: WebSocket, req: http.Incom
   });
 
   if (isNew) {
-    const persistedUpdates = await getUpdates(doc);
+    const persistedUpdates = await getDiagramUpdates(doc.id);
     const dbYDoc = new Y.Doc()
 
     dbYDoc.transact(() => {
       for (const u of persistedUpdates) {
-        Y.applyUpdate(dbYDoc, u.update);
+        Y.applyUpdate(dbYDoc, u);
       }
     });
 
@@ -144,33 +143,6 @@ export const messageListener = async (conn: WebSocket, req: http.IncomingMessage
   }
 }
 
-export const getUpdates = async (doc: WSSharedDoc): Promise<DBUpdate[]> => {
-  const updates = await knex<DBUpdate>('items').where('docId', doc.id).orderBy('id');
-
-  if (updates.length >= updatesLimit) {
-    const dbYDoc = new Y.Doc();
-    
-    dbYDoc.transact(() => {
-      for (const u of updates) {
-        Y.applyUpdate(dbYDoc, u.update);
-      }
-    });
-
-    const [mergedUpdates] = await Promise.all([
-      knex<DBUpdate>('items').insert({docId: doc.id, update: Y.encodeStateAsUpdate(dbYDoc)}).returning('*'),
-      knex<DBUpdate>('items').where('docId', doc.id).whereIn('id', updates.map(({id}) => id)).delete()
-    ]);
-
-    return mergedUpdates;
-  } else {
-    return updates;
-  }
-}
-
-export const persistUpdate = async (doc: WSSharedDoc, update: Uint8Array): Promise<void> => {
-  await knex<DBUpdate>('items').insert({docId: doc.id, update});
-}
-
 export const getYDoc = (docId: string, gc=true): [WSSharedDoc, boolean] => {
   const existing = docs.get(docId);
   if (existing) {
@@ -225,7 +197,9 @@ export const updateHandler = async (update: Uint8Array, origin: any, doc: WSShar
       Promise.all([
         pub.publishBuffer(doc.id, Buffer.from(update)),
         pushDocUpdatesToQueue(doc, update)
-      ]); // do not await
+      ]).catch((err) => {
+        serverLogger.error(err);
+      }); // do not await
   
       const encoder = encoding.createEncoder();
       encoding.writeVarUint(encoder, messageSync);
@@ -233,7 +207,7 @@ export const updateHandler = async (update: Uint8Array, origin: any, doc: WSShar
       const message = encoding.toUint8Array(encoder);
       doc.conns.forEach((_, conn) => send(doc, conn, message));
   
-      await persistUpdate(doc, update);
+      await postDiagramUpdate(doc.id, update);
     } catch {
       persistFailed = true
     }
