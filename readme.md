@@ -10,6 +10,10 @@ Example of horizontally scalable websocket backend for [y-js](https://github.com
 5. `npm run dev` -> starts the websocket-server
 6. On the client-side, initialize a yjs doc and use the y-websocket provider to connect to the websocket-server
 
+# Running tests
+1. After step 3 of **Usage**, go to `node_modules/y-websocket/package.json`, and add `"type": "module"` after line#2, `"name": "y-websocket"`
+2. Run `npm run test`
+
 # How it works
 This repo is a slightly reworked websocket server found in the y-websocket repo([link](https://github.com/yjs/y-websocket/blob/master/bin/server.js)).
 
