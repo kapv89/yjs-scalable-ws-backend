@@ -6,22 +6,22 @@ import config from './config.js';
 import { serverLogger } from './logger/index.js';
 import setupWSConnection, { cleanup } from './setupWSConnection.js';
 
-export const app = express();
-export const server = http.createServer(app);
-export const wss = new WebSocketServer({noServer: true});
-
-wss.on('connection', async (ws, req) => {
-  await setupWSConnection(ws, req);
-});
-
-server.on('upgrade', (req, socket, head) => {
-  // check auth
-  wss.handleUpgrade(req, socket, head, (ws) => {
-    wss.emit('connection', ws, req);
-  })
-});
-
 export const run = async (): Promise<() => Promise<void>> => {
+  const app = express();
+  const server = http.createServer(app);
+  const wss = new WebSocketServer({noServer: true});
+
+  wss.on('connection', async (ws, req) => {
+    await setupWSConnection(ws, req);
+  });
+
+  server.on('upgrade', (req, socket, head) => {
+    // check auth
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit('connection', ws, req);
+    })
+  });
+
   await new Promise<void>(resolve => {
     server.listen(config.server.port, config.server.host, () => {
       resolve();

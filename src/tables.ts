@@ -4,7 +4,7 @@ export const create = async () => {
   if (!(await knex.schema.hasTable('items'))) {
     await knex.schema.createTable('items', (t) => {
       t.bigIncrements('id');
-      t.text('docname').index();
+      t.text('docId').index();
       t.binary('update');
     });
   }

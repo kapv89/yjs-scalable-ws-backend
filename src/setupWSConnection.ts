@@ -6,10 +6,10 @@ import * as syncProtocol from 'y-protocols/sync.js';
 import * as mutex from 'lib0/mutex';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
-import Redis from 'ioredis';
 import knex from './knex.js'
 import {pub, sub} from './pubsub.js';
 import { getDocUpdatesFromQueue, pushDocUpdatesToQueue } from './redis.js';
+import { serverLogger } from './logger/index.js';
 
 const wsReadyStateConnecting = 0
 const wsReadyStateOpen = 1
@@ -20,7 +20,7 @@ const updatesLimit = 50;
 
 export interface DBUpdate {
   id: string;
-  docname: string;
+  docId: string;
   update: Uint8Array;
 }
 
@@ -40,9 +40,10 @@ export function cleanup() {
 }
 
 export default async function setupWSConnection(conn: WebSocket, req: http.IncomingMessage): Promise<void> {
+  serverLogger.info({msg: 'setupWSConnection'});
   conn.binaryType = 'arraybuffer';
-  const docname: string = req.url?.slice(1).split('?')[0] as string;
-  const [doc, isNew] = getYDoc(docname);
+  const docId: string = req.url?.slice(1).split('?')[0] as string;
+  const [doc, isNew] = getYDoc(docId);
   doc.conns.set(conn, new Set());
   
   conn.on('message', (message: WSData) => {
@@ -144,7 +145,7 @@ export const messageListener = async (conn: WebSocket, req: http.IncomingMessage
 }
 
 export const getUpdates = async (doc: WSSharedDoc): Promise<DBUpdate[]> => {
-  const updates = await knex<DBUpdate>('items').where('docname', doc.name).orderBy('id');
+  const updates = await knex<DBUpdate>('items').where('docId', doc.id).orderBy('id');
 
   if (updates.length >= updatesLimit) {
     const dbYDoc = new Y.Doc();
@@ -156,8 +157,8 @@ export const getUpdates = async (doc: WSSharedDoc): Promise<DBUpdate[]> => {
     });
 
     const [mergedUpdates] = await Promise.all([
-      knex<DBUpdate>('items').insert({docname: doc.name, update: Y.encodeStateAsUpdate(dbYDoc)}).returning('*'),
-      knex('items').where('docname', doc.name).whereIn('id', updates.map(({id}) => id)).delete()
+      knex<DBUpdate>('items').insert({docId: doc.id, update: Y.encodeStateAsUpdate(dbYDoc)}).returning('*'),
+      knex<DBUpdate>('items').where('docId', doc.id).whereIn('id', updates.map(({id}) => id)).delete()
     ]);
 
     return mergedUpdates;
@@ -167,19 +168,19 @@ export const getUpdates = async (doc: WSSharedDoc): Promise<DBUpdate[]> => {
 }
 
 export const persistUpdate = async (doc: WSSharedDoc, update: Uint8Array): Promise<void> => {
-  await knex('items').insert({docname: doc.name, update});
+  await knex<DBUpdate>('items').insert({docId: doc.id, update});
 }
 
-export const getYDoc = (docname: string, gc=true): [WSSharedDoc, boolean] => {
-  const existing = docs.get(docname);
+export const getYDoc = (docId: string, gc=true): [WSSharedDoc, boolean] => {
+  const existing = docs.get(docId);
   if (existing) {
     return [existing, false];
   }
 
-  const doc = new WSSharedDoc(docname);
+  const doc = new WSSharedDoc(docId);
   doc.gc = gc;
 
-  docs.set(docname, doc);
+  docs.set(docId, doc);
 
   return [doc, true];
 }
@@ -192,7 +193,7 @@ export const closeConn = (doc: WSSharedDoc, conn: WebSocket): void => {
     
     if (doc.conns.size == 0) {
       doc.destroy();
-      docs.delete(doc.name);
+      docs.delete(doc.id);
     }
   }
 
@@ -222,7 +223,7 @@ export const updateHandler = async (update: Uint8Array, origin: any, doc: WSShar
   if (isOriginWSConn) {
     try {
       Promise.all([
-        pub.publishBuffer(doc.name, Buffer.from(update)),
+        pub.publishBuffer(doc.id, Buffer.from(update)),
         pushDocUpdatesToQueue(doc, update)
       ]); // do not await
   
@@ -244,17 +245,17 @@ export const updateHandler = async (update: Uint8Array, origin: any, doc: WSShar
 }
 
 export class WSSharedDoc extends Y.Doc {
-  name: string;
+  id: string;
   awarenessChannel: string;
   mux: mutex.mutex;
   conns: Map<WebSocket, Set<number>>;
   awareness: awarenessProtocol.Awareness;
 
-  constructor(name: string) {
+  constructor(id: string) {
     super();
 
-    this.name = name;
-    this.awarenessChannel = `${name}-awareness`
+    this.id = id;
+    this.awarenessChannel = `${id}-awareness`
     this.mux = mutex.createMutex();
     this.conns = new Map();
     this.awareness = new awarenessProtocol.Awareness(this);
@@ -280,14 +281,14 @@ export class WSSharedDoc extends Y.Doc {
     this.awareness.on('update', awarenessChangeHandler);
     this.on('update', updateHandler);
 
-    sub.subscribe([this.name, this.awarenessChannel]).then(() => {
+    sub.subscribe([this.id, this.awarenessChannel]).then(() => {
       sub.on('messageBuffer', (channel, update) => {
         const channelId = channel.toString();
 
         // update is a Buffer, Buffer is a subclass of Uint8Array, update can be applied
         // as an update directly
 
-        if (channelId === this.name) {
+        if (channelId === this.id) {
           Y.applyUpdate(this, update, sub);
         } else if (channelId === this.awarenessChannel) {
           awarenessProtocol.applyAwarenessUpdate(this.awareness, update, sub);
@@ -298,6 +299,6 @@ export class WSSharedDoc extends Y.Doc {
 
   destroy() {
     super.destroy();
-    sub.unsubscribe(this.name);
+    sub.unsubscribe(this.id);
   }
 }

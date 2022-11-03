@@ -6,7 +6,7 @@ const redis = new Redis(config.redis);
 
 export default redis;
 
-export const getDocUpdatesKey = (doc: WSSharedDoc) => `doc:${doc.name}:updates`;
+export const getDocUpdatesKey = (doc: WSSharedDoc) => `doc:${doc.id}:updates`;
 
 export const getDocUpdatesFromQueue = async (doc: WSSharedDoc) => {
   return await redis.lrangeBuffer(getDocUpdatesKey(doc), 0, -1);
