@@ -43,6 +43,7 @@ export const saveDocUpdateInRedis = async (docId: string, update: Uint8Array) =>
       .lrangeBuffer(key, 0, 100)
       .rpushBuffer(key, Buffer.from(update))
       .ltrim(key, 0, 100)
+      .expire(key, docRedisLifetimeInS)
       .exec()
     ;
 
