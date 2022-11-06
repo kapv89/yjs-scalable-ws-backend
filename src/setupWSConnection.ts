@@ -6,10 +6,13 @@ import * as syncProtocol from 'y-protocols/sync.js';
 import * as mutex from 'lib0/mutex';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
+import qs from 'qs';
 import {pub, sub} from './pubsub.js';
 import { getDocUpdatesFromQueue, pushDocUpdatesToQueue } from './redis.js';
-import { getDiagramUpdates, postDiagramUpdate } from './apiClient.js';
+import { DocAccessRes, getDocUpdates, postDocUpdate } from './apiClient.js';
 import { serverLogger } from './logger/index.js';
+import _ from 'lodash';
+const {isString} = _;
 
 const wsReadyStateConnecting = 0
 const wsReadyStateOpen = 1
@@ -18,12 +21,6 @@ const wsReadyStateClosed = 3 // eslint-disable-line
 
 const updatesLimit = 50;
 
-export interface DBUpdate {
-  id: string;
-  docId: string;
-  update: Uint8Array;
-}
-
 export const messageSync = 0;
 export const messageAwareness = 1;
 
@@ -31,27 +28,72 @@ export const pingTimeout = 30000;
 
 export const docs = new Map<string, WSSharedDoc>();
 
+export const connAccesses = new Map<WebSocket, ConnAccess>();
+
+export class InvalidReqError extends Error {
+  constructor() {
+    super('invalid ws req');
+  }
+}
+
+export class ConnAccess {
+  token: string;
+  access: DocAccessRes['access'];
+
+  constructor(token: string, access: DocAccessRes['access']) {
+    this.token = token;
+    this.access = access;
+  }
+}
+
+export const getDocIdFromReq = (req: any): string => {
+  const docId = req.url.slice(1).split('?')[0];
+  
+  if (!isString(docId)) {
+    throw new InvalidReqError();
+  }
+
+  return docId
+}
+
+export const getTokenFromReq = (req: any): string => {
+  const [, query] = req.url.split('?');
+  const data = qs.parse(query);
+  const token = data.token;
+
+  if (!isString(token)) {
+    throw new InvalidReqError();
+  }
+
+  return token;
+}
+
 export function cleanup() {
   docs.forEach((doc) => {
     doc.conns.forEach((_, conn) => {
       closeConn(doc, conn);
     })
   })
+
+  connAccesses.forEach((_, conn) => {
+    connAccesses.delete(conn);
+  });
 }
 
-export default async function setupWSConnection(conn: WebSocket, req: http.IncomingMessage): Promise<void> {
+export default async function setupWSConnection(conn: WebSocket, req: http.IncomingMessage, connAccess: ConnAccess): Promise<void> {
   conn.binaryType = 'arraybuffer';
-  const docId: string = req.url?.slice(1).split('?')[0] as string;
+  const docId: string = getDocIdFromReq(req);
   const [doc, isNew] = getYDoc(docId);
   doc.conns.set(conn, new Set());
+  connAccesses.set(conn, connAccess);
   
   conn.on('message', (message: WSData) => {
     messageListener(conn, req, doc, new Uint8Array(message as ArrayBuffer));
   });
 
   if (isNew) {
-    const persistedUpdates = await getDiagramUpdates(doc.id);
-    const dbYDoc = new Y.Doc()
+    const persistedUpdates = await getDocUpdates(doc.id, connAccess.token);
+    const dbYDoc = new Y.Doc();
 
     dbYDoc.transact(() => {
       for (const u of persistedUpdates) {
@@ -124,11 +166,15 @@ export const messageListener = async (conn: WebSocket, req: http.IncomingMessage
   const messageType = decoding.readVarUint(decoder);
   switch (messageType) {
     case messageSync: {
-      encoding.writeVarUint(encoder, messageSync);
-      syncProtocol.readSyncMessage(decoder, encoder, doc, conn);
-      
-      if (encoding.length(encoder) > 1) {
-        send(doc, conn, encoding.toUint8Array(encoder));
+      const connAccess = connAccesses.get(conn);
+
+      if (connAccess && connAccess.access === 'rw') {
+        encoding.writeVarUint(encoder, messageSync);
+        syncProtocol.readSyncMessage(decoder, encoder, doc, conn);
+        
+        if (encoding.length(encoder) > 1) {
+          send(doc, conn, encoding.toUint8Array(encoder));
+        }
       }
   
       break;
@@ -163,11 +209,13 @@ export const closeConn = (doc: WSSharedDoc, conn: WebSocket): void => {
     doc.conns.delete(conn);
     awarenessProtocol.removeAwarenessStates(doc.awareness, Array.from(controlledIds), null);
     
-    if (doc.conns.size == 0) {
+    if (doc.conns.size === 0) {
       doc.destroy();
       docs.delete(doc.id);
     }
   }
+
+  connAccesses.delete(conn);
 
   conn.close();
 }
@@ -190,31 +238,34 @@ export const send = (doc: WSSharedDoc, conn: WebSocket, m: Uint8Array): void => 
 
 export const updateHandler = async (update: Uint8Array, origin: any, doc: WSSharedDoc): Promise<void> => {
   let isOriginWSConn = origin instanceof WebSocket && doc.conns.has(origin);
-  let persistFailed = false;
+
+  const propagateUpdate = () => {
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, messageSync);
+    syncProtocol.writeUpdate(encoder, update);
+    const message = encoding.toUint8Array(encoder);
+    doc.conns.forEach((_, conn) => send(doc, conn, message));
+  };
 
   if (isOriginWSConn) {
-    try {
-      Promise.all([
-        pub.publishBuffer(doc.id, Buffer.from(update)),
-        pushDocUpdatesToQueue(doc, update)
-      ]).catch((err) => {
-        serverLogger.error(err);
-      }); // do not await
-  
-      const encoder = encoding.createEncoder();
-      encoding.writeVarUint(encoder, messageSync);
-      syncProtocol.writeUpdate(encoder, update);
-      const message = encoding.toUint8Array(encoder);
-      doc.conns.forEach((_, conn) => send(doc, conn, message));
-  
-      await postDiagramUpdate(doc.id, update);
-    } catch {
-      persistFailed = true
-    }
-  }
+    Promise.all([
+      pub.publishBuffer(doc.id, Buffer.from(update)),
+      pushDocUpdatesToQueue(doc, update)
+    ]).catch((err) => {
+      serverLogger.error(err);
+    }); // do not await
 
-  if (persistFailed) {
-    closeConn(doc, origin);
+    propagateUpdate();
+
+    const connAccess = connAccesses.get(origin);
+    if (connAccess && connAccess.access === 'rw') {
+      postDocUpdate(doc.id, update, connAccess.token)
+        .catch(() => {
+          closeConn(doc, origin);
+        })
+    }
+  } else {
+    propagateUpdate();
   }
 }
 

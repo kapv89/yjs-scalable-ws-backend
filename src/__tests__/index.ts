@@ -17,18 +17,37 @@ export const nockCleanAll = (): void => {
   nock.cleanAll();
 }
 
-export const nockGetUpdates = (docId: string, updates: string[]): void => {
-  nock(apiUrl(), {}).get(`/documents/${docId}/updates`)
-    .reply(200, {updates})
+export const nockSetRWAccess = (tokens: string[], docId: string): void => {
+  nock(apiUrl(), {
+    reqheaders: {
+      authorization: val => tokens.map(t => `Bearer ${t}`).includes(val)
+    }
+  }).get(`/documents/${docId}/access`)
+    .reply(200, {access: 'rw'})
     .persist(true)
   ;
 }
 
-export const nockPostUpdate = (docId: string, updates: string[]): void => {
-  nock(apiUrl(), {}).post(`/documents/${docId}/updates`, (body) => {
+export const nockGetUpdates = (tokens: string[], docId: string, updates: string[]): void => {
+  nock(apiUrl(), {
+    reqheaders: {
+      authorization: val => tokens.map(t => `Bearer ${t}`).includes(val)
+    }
+  }).get(`/documents/${docId}/updates`)
+    .reply(200, () => ({updates}))
+    .persist(true)
+  ;
+}
+
+export const nockPostUpdate = (tokens: string[], docId: string, updates: string[]): void => {
+  nock(apiUrl(), {
+    reqheaders: {
+      authorization: val => tokens.map(t => `Bearer ${t}`).includes(val)
+    }
+  }).post(`/documents/${docId}/updates`, (body) => {
     updates.push(body.data);
     return true;
-  }).reply(200, {updates})
+  }).reply(200, {msg: 'done'})
     .persist(true)
   ;
 }
