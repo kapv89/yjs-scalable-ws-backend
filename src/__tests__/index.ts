@@ -1,5 +1,14 @@
 import nock from 'nock';
+import { WebsocketProvider } from 'y-websocket';
 import config from "../config.js";
+
+export class NoBCWebsocketProvider extends WebsocketProvider {
+  connectBc() {
+    // making this a no-op to avoid broadcast-channel based communication
+    // b/w docs in tests
+    return;
+  }
+}
 
 export const wsUrl = (): string => `ws://${config.server.host}:${config.server.port}`;
 
@@ -24,6 +33,17 @@ export const nockSetRWAccess = (tokens: string[], docId: string): void => {
     }
   }).get(`/documents/${docId}/access`)
     .reply(200, {access: 'rw'})
+    .persist(true)
+  ;
+}
+
+export const nockSetRAccess = (tokens: string[], docId: string): void => {
+  nock(apiUrl(), {
+    reqheaders: {
+      authorization: val => tokens.map(t => `Bearer ${t}`).includes(val)
+    }
+  }).get(`/documents/${docId}/access`)
+    .reply(200, {access: 'r'})
     .persist(true)
   ;
 }

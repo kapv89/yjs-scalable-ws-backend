@@ -43,19 +43,15 @@ export const run = async (): Promise<() => Promise<void>> => {
   const close = async () => {
     cleanup();
 
-    serverLogger.info('closing server');
-
     await new Promise<void>(resolve => {
-      wss.close((err) => {
+      wss.close(() => {
         resolve()
-        serverLogger.info({wssCloseErr: err});
       })
     });
 
     await new Promise<void>(resolve => {
-      server.close((err) => {
+      server.close(() => {
         resolve()
-        serverLogger.info({serverCloseErr: err})
       })
     })
   };

@@ -7,12 +7,11 @@ import * as mutex from 'lib0/mutex';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import qs from 'qs';
+import isString from 'lodash/isString.js';
 import {pub, sub} from './pubsub.js';
 import { getDocUpdatesFromQueue, pushDocUpdatesToQueue } from './redis.js';
 import { DocAccessRes, getDocUpdates, postDocUpdate } from './apiClient.js';
 import { serverLogger } from './logger/index.js';
-import _ from 'lodash';
-const {isString} = _;
 
 const wsReadyStateConnecting = 0
 const wsReadyStateOpen = 1
@@ -237,8 +236,6 @@ export const send = (doc: WSSharedDoc, conn: WebSocket, m: Uint8Array): void => 
 }
 
 export const updateHandler = async (update: Uint8Array, origin: any, doc: WSSharedDoc): Promise<void> => {
-  let isOriginWSConn = origin instanceof WebSocket && doc.conns.has(origin);
-
   const propagateUpdate = () => {
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, messageSync);
@@ -247,18 +244,20 @@ export const updateHandler = async (update: Uint8Array, origin: any, doc: WSShar
     doc.conns.forEach((_, conn) => send(doc, conn, message));
   };
 
+  const isOriginWSConn = origin instanceof WebSocket && doc.conns.has(origin);
+
   if (isOriginWSConn) {
-    Promise.all([
-      pub.publishBuffer(doc.id, Buffer.from(update)),
-      pushDocUpdatesToQueue(doc, update)
-    ]).catch((err) => {
-      serverLogger.error(err);
-    }); // do not await
-
-    propagateUpdate();
-
     const connAccess = connAccesses.get(origin);
     if (connAccess && connAccess.access === 'rw') {
+      Promise.all([
+        pub.publishBuffer(doc.id, Buffer.from(update)),
+        pushDocUpdatesToQueue(doc, update)
+      ]).catch((err) => {
+        serverLogger.error(err);
+      });
+
+      propagateUpdate();
+
       postDocUpdate(doc.id, update, connAccess.token)
         .catch(() => {
           closeConn(doc, origin);
