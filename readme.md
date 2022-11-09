@@ -1,3 +1,11 @@
+# NEW!!
+Horizontally scaled websocket backend that can talk to any external api for persistence and provide read-only and read+write access levels:
+### Branch [external_api_persistence](https://github.com/kapv89/yjs-scalable-ws-backend/tree/external_api_persistence)
+
+---
+
+### `main`-branch
+
 # About
 Example of horizontally scalable websocket backend for [y-js](https://github.com/yjs/yjs) to be used with [y-websocket](https://github.com/yjs/y-websocket) provider with persitence to postgresql using [knex](http://knexjs.org/).
 
