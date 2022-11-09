@@ -17,5 +17,5 @@ export const drop = async () => {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  create().then(() => console.log('table created')).then(() => knex.destroy());
+  drop().then(() => create()).then(() => console.log('table created')).then(() => knex.destroy());
 }
