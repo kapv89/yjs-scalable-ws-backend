@@ -235,15 +235,15 @@ export const send = (doc: WSSharedDoc, conn: WebSocket, m: Uint8Array): void => 
   }
 }
 
-export const updateHandler = async (update: Uint8Array, origin: any, doc: WSSharedDoc): Promise<void> => {
-  const propagateUpdate = () => {
-    const encoder = encoding.createEncoder();
-    encoding.writeVarUint(encoder, messageSync);
-    syncProtocol.writeUpdate(encoder, update);
-    const message = encoding.toUint8Array(encoder);
-    doc.conns.forEach((_, conn) => send(doc, conn, message));
-  };
+export const propagateUpdate = (doc: WSSharedDoc, update: Uint8Array) => {
+  const encoder = encoding.createEncoder();
+  encoding.writeVarUint(encoder, messageSync);
+  syncProtocol.writeUpdate(encoder, update);
+  const message = encoding.toUint8Array(encoder);
+  doc.conns.forEach((_, conn) => send(doc, conn, message));
+}
 
+export const updateHandler = async (update: Uint8Array, origin: any, doc: WSSharedDoc): Promise<void> => {
   const isOriginWSConn = origin instanceof WebSocket && doc.conns.has(origin);
 
   if (isOriginWSConn) {
@@ -256,7 +256,7 @@ export const updateHandler = async (update: Uint8Array, origin: any, doc: WSShar
         serverLogger.error(err);
       });
 
-      propagateUpdate();
+      propagateUpdate(doc, update);
 
       postDocUpdate(doc.id, update, connAccess.token)
         .catch(() => {
@@ -264,7 +264,7 @@ export const updateHandler = async (update: Uint8Array, origin: any, doc: WSShar
         })
     }
   } else {
-    propagateUpdate();
+    propagateUpdate(doc, update);
   }
 }
 
