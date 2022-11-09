@@ -10,6 +10,7 @@ import Redis from 'ioredis';
 import knex from './knex.js'
 import {pub, sub} from './pubsub.js';
 import { getDocUpdatesFromQueue, pushDocUpdatesToQueue } from './redis.js';
+import { serverLogger } from './logger/index.js';
 
 const wsReadyStateConnecting = 0
 const wsReadyStateOpen = 1
@@ -215,31 +216,33 @@ export const send = (doc: WSSharedDoc, conn: WebSocket, m: Uint8Array): void => 
   }
 }
 
+export const propagateUpdate = (doc: WSSharedDoc, update: Uint8Array) => {
+  const encoder = encoding.createEncoder();
+  encoding.writeVarUint(encoder, messageSync);
+  syncProtocol.writeUpdate(encoder, update);
+  const message = encoding.toUint8Array(encoder);
+  doc.conns.forEach((_, conn) => send(doc, conn, message));
+}
+
 export const updateHandler = async (update: Uint8Array, origin: any, doc: WSSharedDoc): Promise<void> => {
   let isOriginWSConn = origin instanceof WebSocket && doc.conns.has(origin);
-  let persistFailed = false;
 
   if (isOriginWSConn) {
-    try {
-      Promise.all([
-        pub.publishBuffer(doc.name, Buffer.from(update)),
-        pushDocUpdatesToQueue(doc, update)
-      ]); // do not await
-  
-      const encoder = encoding.createEncoder();
-      encoding.writeVarUint(encoder, messageSync);
-      syncProtocol.writeUpdate(encoder, update);
-      const message = encoding.toUint8Array(encoder);
-      doc.conns.forEach((_, conn) => send(doc, conn, message));
-  
-      await persistUpdate(doc, update);
-    } catch {
-      persistFailed = true
-    }
-  }
+    Promise.all([
+      pub.publishBuffer(doc.name, Buffer.from(update)),
+      pushDocUpdatesToQueue(doc, update)
+    ]); // do not await
 
-  if (persistFailed) {
-    closeConn(doc, origin);
+    propagateUpdate(doc, update);
+
+    persistUpdate(doc, update)
+      .catch((err) => {
+        serverLogger.error(err);
+        closeConn(doc, origin);
+      })
+    ;
+  } else {
+    propagateUpdate(doc, update);
   }
 }
 
