@@ -7,7 +7,7 @@ Horizontally scaled websocket backend that can talk to any external api for pers
 ### `main`-branch
 
 # About
-Example of horizontally scalable websocket backend for [y-js](https://github.com/yjs/yjs) to be used with [y-websocket](https://github.com/yjs/y-websocket) provider with persitence to postgresql using [knex](http://knexjs.org/).
+Example of horizontally scalable websocket backend for [y-js](https://github.com/yjs/yjs) to be used with [y-websocket](https://github.com/yjs/y-websocket) provider with persitence to postgresql using [knex](http://knexjs.org/). Uses redis-pubsub for horizontal scaling and uses redis-queues to provide eventual-consistency and better behaviour when users join a document being edited by other users.
 
 # Usage
 1. `npm ci`
