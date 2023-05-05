@@ -9,9 +9,9 @@
     "clean": "rm -rf dist",
     "build": "npm run clean && tsc",
     "watch": "npm run clean && tsc -w",
-    "dev": "nodemon -r source-map-support/register -r dotenv/config dist/app.js dotenv_config_path=.env.local",
+    "dev": "tsx watch -r dotenv/config src/app.ts dotenv_config_path=.env.local",
     "start": "node -r source-map-support/register dist/app.js",
-    "tables": "node -r source-map-support/register -r dotenv/config dist/tables.js dotenv_config_path=.env.local"
+    "tables": "tsx -r dotenv/config src/tables.ts dotenv_config_path=.env.local"
   },
   "author": "",
   "license": "MIT",
@@ -33,6 +33,7 @@
     "lodash": "^4.17.21",
     "nodemon": "^2.0.13",
     "source-map-support": "^0.5.20",
+    "tsx": "^3.12.7",
     "typescript": "^4.4.3",
     "ws": "^8.2.2",
     "wtfnode": "^0.9.1",
