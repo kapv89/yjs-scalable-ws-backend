@@ -1,3 +1,5 @@
+# Code from this repo live on [erdtool.com](https://erdtool.com)!!!
+
 # NEW!!
 Horizontally scaled websocket backend that can talk to any external api for persistence and provide read-only and read+write access levels:
 ### Branch [external_api_persistence](https://github.com/kapv89/yjs-scalable-ws-backend/tree/external_api_persistence)
@@ -27,7 +29,9 @@ The websocket-server in this repo isolates the updates that clients send to it, 
 
 This makes the websocket-server provided in this repo persistent and horizontally-scalable on paper.
 
-The code in this repo hasn't been tested in a production system yet, and from the looks of it, will be a long time before I would be able to run it on a production system, but theoretically, the code in this repo should be sufficient and can be tweaked to suit any project.
+~~The code in this repo hasn't been tested in a production system yet, and from the looks of it, will be a long time before I would be able to run it on a production system, but theoretically, the code in this repo should be sufficient and can be tweaked to suit any project.~~
+
+**The code from this repo is live on (https://erdtool.com)**
 
 # Companion testing repo
 [repo](https://github.com/kapv89/yjs-scalable-ws-backend-test)
