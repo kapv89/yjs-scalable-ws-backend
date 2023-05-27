@@ -301,6 +301,6 @@ export class WSSharedDoc extends Y.Doc {
 
   destroy() {
     super.destroy();
-    sub.unsubscribe(this.name);
+    sub.unsubscribe([this.name, this.awarenessChannel]);
   }
 }
