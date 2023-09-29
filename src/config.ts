@@ -17,6 +17,7 @@ const config = {
     host: process.env.REDIS_HOST as string,
     port: Number(process.env.REDIS_PORT as string),
     keyPrefix: process.env.REDIS_PREFIX as string,
+    path: process.env.REDIS_PATH as string,
     ...((() => {
       const password = process.env.REDIS_PASSWORD as (string | undefined)
       
