@@ -13,3 +13,5 @@ Example of crdt websocket backend for [y-js](https://github.com/yjs/yjs) to be u
 6. `docker-compose up` to start redis
 7. `npm run test`
 8. Go through `src/__tests__/app.test.ts` to view details for tests
+
+# USE WITH [`k_yrs_go`](https://github.com/kapv89/k_yrs_go)

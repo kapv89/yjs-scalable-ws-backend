@@ -9,7 +9,6 @@ import * as decoding from 'lib0/decoding';
 import qs from 'qs';
 import isString from 'lodash/isString.js';
 import {pub, sub} from './pubsub.js';
-import { getDocUpdatesFromQueue, pushDocUpdatesToQueue } from './redis.js';
 import { DocAccessRes, getDocUpdates, postDocUpdate } from './apiClient.js';
 import { serverLogger } from './logger/index.js';
 
@@ -101,16 +100,6 @@ export default async function setupWSConnection(conn: WebSocket, req: http.Incom
     });
 
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(dbYDoc));
-
-    const redisUpdates = await getDocUpdatesFromQueue(doc);
-    const redisYDoc = new Y.Doc();
-    redisYDoc.transact(() => {
-      for (const u of redisUpdates) {
-        Y.applyUpdate(redisYDoc, u);
-      }
-    });
-
-    Y.applyUpdate(doc, Y.encodeStateAsUpdate(redisYDoc));
   }
 
   let pongReceived = true;
@@ -249,10 +238,7 @@ export const updateHandler = async (update: Uint8Array, origin: any, doc: WSShar
   if (isOriginWSConn) {
     const connAccess = connAccesses.get(origin);
     if (connAccess && connAccess.access === 'rw') {
-      Promise.all([
-        pub.publishBuffer(doc.id, Buffer.from(update)),
-        pushDocUpdatesToQueue(doc, update)
-      ]).catch((err) => {
+      pub.publishBuffer(doc.id, Buffer.from(update)).catch((err) => {
         serverLogger.error(err);
       });
 
